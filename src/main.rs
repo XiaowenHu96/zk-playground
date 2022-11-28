@@ -66,7 +66,6 @@ fn polynomial_divide(dividend: &Polynomial, divisor: &Polynomial) -> Polynomial 
     let mut dividend_coeffs = dividend.coefficients.clone();
 
     // Note our polynomial representation starts from lower order.
-    // Code also assume len() = degree(f)
     let divisor_pos = divisor.degree();
     assert!(divisor_pos >= 0, "Divisor cannot be a zero polynomial");
     let mut dividend_pos = dividend.degree();
@@ -149,7 +148,6 @@ fn verify_pairing(
         &G1Affine::from(comm_p - G1Projective::generator() * y),
         &G2Affine::generator(),
     );
-    println!("{:?} \n {:?}", lhs, rhs);
     return lhs == rhs;
 }
 
