@@ -17,8 +17,6 @@ dependencies = [
 [[package]]
 name = "bls12_381"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62250ece575fa9b22068b3a8d59586f01d426dd7785522efd97632959e71c986"
 dependencies = [
  "ff",
  "group",
