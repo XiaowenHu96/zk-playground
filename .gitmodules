@@ -1,3 +1,0 @@
-[submodule "bls12_381"]
-	path = bls12_381
-	url = git@github.com:zkcrypto/bls12_381.git
