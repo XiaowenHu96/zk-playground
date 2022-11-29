@@ -1,10 +1,10 @@
 Ref:
-    - https://github.com/ralexstokes/kzg
-    - https://github.com/dusk-network/plonk
+- https://github.com/ralexstokes/kzg
+- https://github.com/dusk-network/plonk
 
 Implemented:
-    - [X] Single commit and single point opening.
-    - [X] Fast Fourier Transform and its inverse.
+- [X] Single commit and single point opening.
+- [X] Fast Fourier Transform and its inverse.
 
 Run:
 ```
