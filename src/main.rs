@@ -99,11 +99,10 @@ impl Setup {
         let mut rng = SmallRng::seed_from_u64(20221128);
 
         let mut secret = [0u8; 32];
-        // TODO: why Scalar::from_bytes() can fail, i.e. what is non-canonical input?
-        // TODO later: current solution is kind of stupid
         loop {
             rng.fill_bytes(&mut secret);
             let r = Scalar::from_bytes(&secret);
+            // until get a value that is smaller than MODULUS
             if r.is_some().into() {
                 break;
             }
