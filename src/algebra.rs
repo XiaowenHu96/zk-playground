@@ -109,11 +109,11 @@ impl Polynomial {
         }
     }
 
-    fn zero() -> Self {
+    pub fn zero() -> Self {
         Polynomial::new(vec![].into_iter())
     }
 
-    fn one() -> Self {
+    pub fn one() -> Self {
         Polynomial::new(vec![Scalar::one()].into_iter())
     }
 

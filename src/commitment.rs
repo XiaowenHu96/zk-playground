@@ -7,6 +7,9 @@ use rand::prelude::*;
 struct Setup {
     pub tau_p: Vec<G1Projective>,
     pub tau_v: G2Projective,
+    // TODO: So that I can do commitment on G2 (for single poly multiple points)
+    // Ask yuncong whether it is necessary
+    tau_vs: Vec<G2Projective>,
 }
 
 impl Setup {
@@ -31,16 +34,33 @@ impl Setup {
             tau_p.push(g1 * tmp);
             tmp *= tau;
         }
+
+        let mut tau_vs: Vec<G2Projective> = vec![];
+        let g2 = G2Projective::generator();
+        let mut tmp = Scalar::one();
+        for _ in 0..degree {
+            tau_vs.push(g2 * tmp);
+            tmp *= tau;
+        }
         Self {
             tau_p,
             tau_v: G2Projective::generator() * tau,
+            tau_vs,
         }
     }
 
     pub fn commit(&self, polynomial: &Polynomial) -> G1Projective {
         let mut res = G1Projective::identity();
-        for i in 0..polynomial.coefficients.len() as usize {
+        for i in 0..=polynomial.degree() as usize {
             res += self.tau_p[i] * polynomial.coefficients[i]
+        }
+        res
+    }
+
+    pub fn commit_g2(&self, polynomial: &Polynomial) -> G2Projective {
+        let mut res = G2Projective::identity();
+        for i in 0..=polynomial.degree() as usize {
+            res += self.tau_vs[i] * polynomial.coefficients[i]
         }
         res
     }
@@ -64,7 +84,7 @@ impl Setup {
         return lhs == rhs;
     }
 
-    // Verify p([z]) = [y]
+    // Verify p([z_i]) = [y_i]
     pub fn verify_single_poly_multiple_open(
         &self,
         comm_p: &G1Projective,
@@ -73,22 +93,40 @@ impl Setup {
         y: Vec<Scalar>,
     ) -> bool {
         // interpolate I(x) on ([z, y])
-        let I = Polynomial::fast_interpolate(&z, &y);
+        let i = Polynomial::fast_interpolate(&z, &y);
         // TODO: double-check with yuncong that this is correct.
         // Can verifier leave the computation of comm_i to prover?
-        // Since P_z uses tau_v = \tau * G2, if tau_v is not known by prover
-        // Can prover still construct comm_I, comm_P and comm_Q to trick the verifier?
-        let comm_i = self.commit(&I); 
-        let P_z = z
-            .into_iter()
-            .map(|z| self.tau_v - G2Projective::generator() * z)
-            .collect::<Vec<_>>();
-        let mut sum_P_z = G2Projective::identity();
-        for i in P_z {
-            sum_P_z += i;
-        }
-        let lhs = pairing(&G1Affine::from(comm_q), &G2Affine::from(sum_P_z));
+        let comm_i = self.commit(&i);
+        // compute commitment of zerofier on G2
+
+        let zerofier = Polynomial::fast_zerofier(z.as_slice());
+        let comm_z = self.commit_g2(&zerofier);
+        let lhs = pairing(&G1Affine::from(comm_q), &G2Affine::from(comm_z));
         let rhs = pairing(&G1Affine::from(comm_p - comm_i), &G2Affine::generator());
+        return lhs == rhs;
+    }
+
+    // Verify that [p_i(z)] = [y_i]
+    pub fn verify_multiple_poly_single_open(
+        &self,
+        comm_p: &G1Projective,
+        comm_q: &G1Projective,
+        z: Scalar,
+        y: Vec<Scalar>,
+    ) -> bool {
+        let p_y = y
+            .into_iter()
+            .map(|y| G1Projective::generator() * y)
+            .collect::<Vec<_>>();
+        let mut sum_p_y = G1Projective::identity();
+        for y in p_y {
+            sum_p_y += y;
+        }
+        let lhs = pairing(
+            &G1Affine::from(comm_q),
+            &G2Affine::from(self.tau_v - G2Projective::generator() * z),
+        );
+        let rhs = pairing(&G1Affine::from(comm_p - sum_p_y), &G2Affine::generator());
         return lhs == rhs;
     }
 }
@@ -101,33 +139,32 @@ mod tests {
 
     #[test]
     fn test_single_poly_single_open() {
-        let setup = Setup::new(10);
-        let coefficients = vec![42, 1, 1, 0, 1].into_iter().map(Scalar::from);
-        // p(x) = 42 + x + x^2 + x^4
-        let polynomial = Polynomial::new(coefficients);
-        // the point to open at, so f = (x-2) should divides p_hat = p(x)-64
-        let z_point = Scalar::from(2);
-        // the expected value at z: prove p(2) = 64
-        let y_point = Scalar::from(64);
+        let setup = Setup::new(32);
+        let coeffs = algebra::rand_scalars(32);
+        let poly = Polynomial::new(coeffs.into_iter());
+        let z_point = algebra::rand_scalars(1)[0];
+        let y_point = poly.evalulate_at(z_point);
+        // dividend = f(X) - y
+        let dividend = &poly - &Polynomial::new(vec![y_point.neg()].into_iter());
+        // divisor = (x-z)
+        let divisor = Polynomial::new(vec![z_point.neg(), Scalar::one()].into_iter());
 
-        // divisor = (x-2)
-        let divisor = Polynomial::new(vec![Scalar::from(2).neg(), Scalar::one()].into_iter());
-        // dividend = p(x) - 64
-        let dividend = &polynomial + &Polynomial::new(vec![Scalar::from(64).neg()].into_iter());
-
-        let comm_p = setup.commit(&polynomial);
+        // Prover work:
+        let comm_p = setup.commit(&poly);
         let quotient = &dividend / &divisor;
         let comm_q = setup.commit(&quotient);
+
+        // Verifier work:
         let res = setup.verify_single_poly_single_open(&comm_p, &comm_q, z_point, y_point);
         assert!(res == true);
     }
 
     #[test]
     fn test_single_poly_multiple_open() {
-        let setup = Setup::new(64);
+        let setup = Setup::new(32);
         let coeffs = algebra::rand_scalars(32);
         let poly = Polynomial::new(coeffs.into_iter());
-        let z_points = algebra::rand_scalars(64);
+        let z_points = algebra::rand_scalars(16);
         let y_points = Polynomial::fast_evalulate(&poly, &z_points);
 
         // Prover work:
@@ -140,6 +177,36 @@ mod tests {
 
         // Verifier work
         let res = setup.verify_single_poly_multiple_open(&comm_p, &comm_q, z_points, y_points);
+        assert!(res == true);
+    }
+
+    #[test]
+    fn test_multiply_poly_single_open() {
+        let setup = Setup::new(32);
+        let z_point = algebra::rand_scalars(1)[0];
+        let mut polys = vec![];
+        let mut y_points = vec![];
+        for i in 0..8 {
+            polys.push(Polynomial::new(algebra::rand_scalars(32).into_iter()));
+            y_points.push(polys[i].evalulate_at(z_point));
+        }
+
+        // Prover work:
+        let mut dividend = Polynomial::zero();
+        for i in 0..y_points.len() {
+            // TODO add xx-assign operator
+            dividend = &dividend + &(&polys[i] - &Polynomial::new(vec![y_points[i]].into_iter()));
+        }
+        let divisor = Polynomial::new(vec![z_point.neg(), Scalar::one()].into_iter());
+        let quotient = &dividend / &divisor;
+        let comm_q = setup.commit(&quotient);
+        let mut comm_p = G1Projective::identity();
+        for p in &polys {
+            comm_p += setup.commit(p);
+        }
+
+        // Verifier work
+        let res = setup.verify_multiple_poly_single_open(&comm_p, &comm_q, z_point, y_points);
         assert!(res == true);
     }
 }
