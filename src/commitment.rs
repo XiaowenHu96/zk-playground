@@ -71,7 +71,7 @@ mod tests {
     use crate::algebra::Polynomial;
 
     #[test]
-    fn test_commit() {
+    fn test_single_poly_single_open() {
         let setup = Setup::new(10);
         let coefficients = vec![42, 1, 1, 0, 1].into_iter().map(Scalar::from);
         // p(x) = 42 + x + x^2 + x^4
@@ -81,15 +81,15 @@ mod tests {
         // the expected value at z: prove p(2) = 64
         let y_point = Scalar::from(64);
 
-        let mut divisor = Polynomial::new(vec![2, 1].into_iter().map(Scalar::from));
-        divisor.coefficients[0] = divisor.coefficients[0].neg(); //TODO ugly hack?
-        let mut dividend = Polynomial::new(polynomial.coefficients.clone().into_iter());
-        dividend.coefficients[0] = dividend.coefficients[0] + Scalar::from(64).neg();
+        // divisor = (x-2)
+        let divisor = Polynomial::new(vec![Scalar::from(2).neg(), Scalar::one()].into_iter());
+        // dividend = p(x) - 64
+        let dividend = &polynomial + &Polynomial::new(vec![Scalar::from(64).neg()].into_iter());
 
         let comm_p = setup.commit(&polynomial);
         let quotient = &dividend / &divisor;
         let comm_q = setup.commit(&quotient);
-        let res = setup.verify_open_at(&comm_p, &comm_q, z_point, y_point);
+        let res = setup.verify_single_poly_single_open(&comm_p, &comm_q, z_point, y_point);
         assert!(res == true);
     }
 }
