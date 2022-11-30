@@ -45,7 +45,8 @@ impl Setup {
         res
     }
 
-    pub fn verify_pairing(
+    // Verify p(z) = y by checking (comm_p - y) = (comm_q) * (x - z)
+    pub fn verify_open_at(
         &self,
         comm_p: &G1Projective,
         comm_q: &G1Projective,
@@ -86,9 +87,9 @@ mod tests {
         dividend.coefficients[0] = dividend.coefficients[0] + Scalar::from(64).neg();
 
         let comm_p = setup.commit(&polynomial);
-        let quotient = Polynomial::find_quotient(&dividend, &divisor);
+        let quotient = &dividend / &divisor;
         let comm_q = setup.commit(&quotient);
-        let res = setup.verify_pairing(&comm_p, &comm_q, z_point, y_point);
+        let res = setup.verify_open_at(&comm_p, &comm_q, z_point, y_point);
         assert!(res == true);
     }
 }

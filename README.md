@@ -5,6 +5,7 @@ Ref:
 Implemented:
 - [X] Single commit and single point opening.
 - [X] Fast Fourier Transform and its inverse.
+- [X] Optimized version for batch-evaluate, multiply, zerofier and interpolate
 
 Run:
 ```
