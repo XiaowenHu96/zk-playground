@@ -74,7 +74,11 @@ impl Setup {
     ) -> bool {
         // interpolate I(x) on ([z, y])
         let I = Polynomial::fast_interpolate(&z, &y);
-        let comm_i = self.commit(&I); //TODO: double-check with yuncong that this is correct.
+        // TODO: double-check with yuncong that this is correct.
+        // Can verifier leave the computation of comm_i to prover?
+        // Since P_z uses tau_v = \tau * G2, if tau_v is not known by prover
+        // Can prover still construct comm_I, comm_P and comm_Q to trick the verifier?
+        let comm_i = self.commit(&I); 
         let P_z = z
             .into_iter()
             .map(|z| self.tau_v - G2Projective::generator() * z)
