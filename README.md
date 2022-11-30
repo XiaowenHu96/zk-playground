@@ -7,8 +7,8 @@ Implemented:
 - [X] Fast Fourier Transform and its inverse.
 - [X] Optimized version for batch-evaluate, multiply, zerofier and interpolate
 - [X] Single polynomial and multiple points opening.
-- [X] Multiple polynomial and single point opening.
-- [ ] Multiple polynomial and multiple points opening.
+- [X] Multiple polynomials and single point opening.
+- [ ] Multiple polynomials and multiple points opening.
 - [ ] Regression Check 
 - [ ] Permutation Argument.
 
