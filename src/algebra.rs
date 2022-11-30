@@ -1,5 +1,6 @@
 use bls12_381::Scalar;
-use std::ops::{Add, Div, Mul, Rem};
+use rand::prelude::*;
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 /**
  * Polynomial representation
  * [a_0, a_1, ..., a_n] -> y = a_0x^0 + a_1x^1 + ... + a_nx^n
@@ -39,6 +40,19 @@ impl<'a, 'b> Rem<&'b Polynomial> for &'a Polynomial {
     }
 }
 
+impl<'a> Neg for &'a Polynomial {
+    type Output = Polynomial;
+    fn neg(self) -> Self::Output {
+        let coeffs: Vec<Scalar> = self
+            .coefficients
+            .clone()
+            .iter_mut()
+            .map(|x| x.neg())
+            .collect();
+        Polynomial::new(coeffs.into_iter())
+    }
+}
+
 impl<'a, 'b> Add<&'b Polynomial> for &'a Polynomial {
     type Output = Polynomial;
     fn add(self, other: &'b Polynomial) -> Polynomial {
@@ -61,6 +75,13 @@ impl<'a, 'b> Add<&'b Polynomial> for &'a Polynomial {
             }
             return result;
         }
+    }
+}
+
+impl<'a, 'b> Sub<&'b Polynomial> for &'a Polynomial {
+    type Output = Polynomial;
+    fn sub(self, other: &'b Polynomial) -> Polynomial {
+        self + (&other.neg())
     }
 }
 
@@ -332,17 +353,16 @@ fn actual_fft(omega: Scalar, sequence: &Vec<Scalar>) -> Vec<Scalar> {
     return res;
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rand::prelude::*;
+pub fn rand_scalars(size: usize) -> Vec<Scalar> {
+    let mut rng = thread_rng();
+    (0..size)
+        .map(|_| Scalar::from(rng.gen::<u64>()))
+        .collect::<Vec<_>>()
+}
 
-    fn rand_scalars(size: usize) -> Vec<Scalar> {
-        let mut rng = thread_rng();
-        (0..size)
-            .map(|_| Scalar::from(rng.gen::<u64>()))
-            .collect::<Vec<_>>()
-    }
+#[cfg(test)]
+pub mod tests {
+    use super::*;
 
     #[test]
     fn test_eval_polynomial() {

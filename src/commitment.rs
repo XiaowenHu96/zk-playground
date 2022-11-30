@@ -46,7 +46,7 @@ impl Setup {
     }
 
     // Verify p(z) = y by checking (comm_p - y) = (comm_q) * (x - z)
-    pub fn verify_open_at(
+    pub fn verify_single_poly_single_open(
         &self,
         comm_p: &G1Projective,
         comm_q: &G1Projective,
@@ -63,11 +63,36 @@ impl Setup {
         );
         return lhs == rhs;
     }
+
+    // Verify p([z]) = [y]
+    pub fn verify_single_poly_multiple_open(
+        &self,
+        comm_p: &G1Projective,
+        comm_q: &G1Projective,
+        z: Vec<Scalar>,
+        y: Vec<Scalar>,
+    ) -> bool {
+        // interpolate I(x) on ([z, y])
+        let I = Polynomial::fast_interpolate(&z, &y);
+        let comm_i = self.commit(&I); //TODO: double-check with yuncong that this is correct.
+        let P_z = z
+            .into_iter()
+            .map(|z| self.tau_v - G2Projective::generator() * z)
+            .collect::<Vec<_>>();
+        let mut sum_P_z = G2Projective::identity();
+        for i in P_z {
+            sum_P_z += i;
+        }
+        let lhs = pairing(&G1Affine::from(comm_q), &G2Affine::from(sum_P_z));
+        let rhs = pairing(&G1Affine::from(comm_p - comm_i), &G2Affine::generator());
+        return lhs == rhs;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::algebra;
     use crate::algebra::Polynomial;
 
     #[test]
@@ -90,6 +115,27 @@ mod tests {
         let quotient = &dividend / &divisor;
         let comm_q = setup.commit(&quotient);
         let res = setup.verify_single_poly_single_open(&comm_p, &comm_q, z_point, y_point);
+        assert!(res == true);
+    }
+
+    #[test]
+    fn test_single_poly_multiple_open() {
+        let setup = Setup::new(64);
+        let coeffs = algebra::rand_scalars(32);
+        let poly = Polynomial::new(coeffs.into_iter());
+        let z_points = algebra::rand_scalars(64);
+        let y_points = Polynomial::fast_evalulate(&poly, &z_points);
+
+        // Prover work:
+        let zerofier = Polynomial::fast_zerofier(z_points.as_slice());
+        let i = Polynomial::fast_interpolate(z_points.as_slice(), y_points.as_slice());
+        let dividend = &poly - &i;
+        let quotient = &dividend / &zerofier;
+        let comm_p = setup.commit(&poly);
+        let comm_q = setup.commit(&quotient);
+
+        // Verifier work
+        let res = setup.verify_single_poly_multiple_open(&comm_p, &comm_q, z_points, y_points);
         assert!(res == true);
     }
 }
