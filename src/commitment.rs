@@ -7,8 +7,7 @@ use rand::prelude::*;
 struct Setup {
     pub tau_p: Vec<G1Projective>,
     pub tau_v: G2Projective,
-    // TODO: So that I can do commitment on G2 (for single poly multiple points)
-    // Ask yuncong whether it is necessary
+    // Do NOT use, this is So that I can play with commitment on G2 (for single poly multiple points)
     tau_vs: Vec<G2Projective>,
 }
 
@@ -66,6 +65,7 @@ impl Setup {
         res
     }
 
+    // Do NOT use, this is So that I can play with commitment on G2 (for single poly multiple points)
     pub fn commit_g2(&self, polynomial: &Polynomial) -> G2Projective {
         let mut res = G2Projective::identity();
         for i in 0..=polynomial.degree() as usize {
@@ -94,7 +94,7 @@ impl Setup {
     }
 
     // Verify p([z_i]) = [y_i]
-    // This uses a commitment over G2, which is not recommended 
+    // This uses a commitment over G2, which is not recommended
     // (why? Performance? Security?)
     // For a work around, use multiple_poly_mulitple_points_open()
     pub fn verify_single_poly_multiple_open(
@@ -150,7 +150,7 @@ impl Setup {
         for prove in &proves {
             lhs_sum_w += prove.comm_q * prove.z;
             rhs_sum_w += prove.comm_q;
-            let cm_ys: G1Projective = G1Projective::generator() * prove.ys.iter().sum::<Scalar>();
+            let cm_ys: G1Projective = self.tau_p[0] * prove.ys.iter().sum::<Scalar>();
             sum_f += prove.comm_ps.iter().sum::<G1Projective>() - cm_ys;
         }
         let lhs = pairing(&G1Affine::from(sum_f + lhs_sum_w), &G2Affine::generator());
