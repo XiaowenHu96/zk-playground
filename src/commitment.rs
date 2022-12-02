@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_permutation_argument() {
-        let degree = 4;
+        let degree = 32;
         let mut rng = thread_rng();
         // generate domain
         let d = algebra::Domain::new(degree);
