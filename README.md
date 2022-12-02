@@ -10,7 +10,7 @@ Implemented:
 - [X] Multiple polynomials and single point opening.
 - [X] Multiple polynomials and multiple points opening.
 - [ ] Regression Check 
-- [ ] Permutation Argument.
+- [X] Permutation Argument.
 
 Run:
 ```

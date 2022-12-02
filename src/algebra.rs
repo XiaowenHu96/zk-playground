@@ -1,6 +1,6 @@
 use bls12_381::Scalar;
 use rand::prelude::*;
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
 /**
  * Polynomial representation
  * [a_0, a_1, ..., a_n] -> y = a_0x^0 + a_1x^1 + ... + a_nx^n
@@ -102,6 +102,9 @@ impl<'a, 'b> Mul<&'b Polynomial> for &'a Polynomial {
     }
 }
 
+impl_binops_additive!(Polynomial, Polynomial);
+impl_binops_multiplicative!(Polynomial, Polynomial);
+
 impl Polynomial {
     pub fn new(coefficients: impl Iterator<Item = Scalar>) -> Self {
         Self {
@@ -115,6 +118,17 @@ impl Polynomial {
 
     pub fn one() -> Self {
         Polynomial::new(vec![Scalar::one()].into_iter())
+    }
+
+    // return f(x) = p(x * s)
+    pub fn scale(poly: &Polynomial, s: Scalar) -> Self {
+        let mut res = poly.clone();
+        let mut tmp = s;
+        res.coefficients.iter_mut().skip(1).for_each(|c| {
+            *c *= tmp;
+            tmp *= s;
+        });
+        res
     }
 
     pub fn evalulate_at(self: &Self, point: Scalar) -> Scalar {
@@ -353,6 +367,7 @@ fn actual_fft(omega: Scalar, sequence: &Vec<Scalar>) -> Vec<Scalar> {
     return res;
 }
 
+// Only scalar that can be encoded by u64
 pub fn rand_scalars(size: usize) -> Vec<Scalar> {
     let mut rng = thread_rng();
     (0..size)
@@ -360,9 +375,33 @@ pub fn rand_scalars(size: usize) -> Vec<Scalar> {
         .collect::<Vec<_>>()
 }
 
+// Scalar over Fp
+pub fn rand_scalar() -> Scalar {
+    let mut rng = thread_rng();
+
+    let mut secret = [0u8; 32];
+    loop {
+        rng.fill_bytes(&mut secret);
+        let r = Scalar::from_bytes(&secret);
+        // until get a value that is smaller than MODULUS
+        if r.is_some().into() {
+            return Scalar::from_bytes(&secret).unwrap();
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
+    #[test]
+    fn test_polynomial_scale() {
+        let poly = Polynomial::new(rand_scalars(32).into_iter());
+        let scale = rand_scalar();
+        let poly_scale = Polynomial::scale(&poly, scale);
+        let x = rand_scalar();
+        assert_eq!(poly.evalulate_at(x * scale), poly_scale.evalulate_at(x));
+    }
 
     #[test]
     fn test_eval_polynomial() {

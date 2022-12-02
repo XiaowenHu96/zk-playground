@@ -1,8 +1,9 @@
+use crate::algebra;
 use crate::algebra::Polynomial;
-use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
+use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 use rand::prelude::*;
 
-// Prover get tau_p = \sum_{i}{\tau^i * G1}
+// Prover get tau_p = {\tau^i * G1}
 // Verifier get tau_v = tau * G2
 struct Setup {
     pub tau_p: Vec<G1Projective>,
@@ -22,18 +23,7 @@ struct BatchProof {
 
 impl Setup {
     pub fn new(degree: usize) -> Self {
-        let mut rng = thread_rng();
-
-        let mut secret = [0u8; 32];
-        loop {
-            rng.fill_bytes(&mut secret);
-            let r = Scalar::from_bytes(&secret);
-            // until get a value that is smaller than MODULUS
-            if r.is_some().into() {
-                break;
-            }
-        }
-        let tau = Scalar::from_bytes(&secret).unwrap();
+        let tau = algebra::rand_scalar();
 
         let mut tau_p: Vec<G1Projective> = vec![];
         let mut tmp = Scalar::one();
@@ -162,11 +152,119 @@ impl Setup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algebra;
-    use crate::algebra::Polynomial;
 
     #[test]
-    fn multiple_poly_mulitple_points_open() {
+    fn test_permutation_argument() {
+        let degree = 4;
+        let mut rng = thread_rng();
+        // generate domain
+        let d = algebra::Domain::new(degree);
+        let mut domain = vec![];
+        let mut v = Scalar::one();
+        for _ in 0..degree {
+            domain.push(v);
+            v = v * d.generator;
+        }
+        let omega = d.generator;
+        // san check
+        assert_eq!(domain[0], Scalar::one());
+        assert_eq!(domain[degree - 1] * omega, Scalar::one());
+        // generate random polynomial f with degree 32
+        let f = Polynomial::new(algebra::rand_scalars(degree).into_iter());
+        // calculate f over d
+        let f_ys = Polynomial::fast_evalulate(&f, &domain);
+        let mut g_ys = f_ys.clone();
+        // shuffle values
+        g_ys.shuffle(&mut rng);
+        // produce g
+        let g = Polynomial::fast_interpolate(&domain, &g_ys);
+        // Now we have f, g with f(D) and g(D) being permutation of each other
+
+        //
+        // Protocol start
+        //
+        let setup = Setup::new(degree);
+
+        // Prover binds f and g
+        let comm_f = setup.commit(&f);
+        let comm_g = setup.commit(&g);
+
+        // Verifier sends gamma
+        let gamma = algebra::rand_scalar();
+
+        // Prover Computes r
+        // Note: simply abort if divide-by-zero happen
+        let mut rv = vec![(f_ys[0] + gamma) * (g_ys[0] + gamma).invert().unwrap()];
+        for i in 1..degree {
+            rv.push(rv[i - 1] * (f_ys[i] + gamma) * (g_ys[i] + gamma).invert().unwrap())
+        }
+        let r = Polynomial::fast_interpolate(&domain, &rv);
+        // san check
+        assert_eq!(r.evalulate_at(domain[degree - 1]), Scalar::one());
+
+        // Prove computes r'
+        let r_prime = &(&r - Polynomial::one())
+            / &(Polynomial::new(vec![domain[degree - 1].neg(), Scalar::one()].into_iter()));
+        // Prove compute q, r_prime_w, fw, gw
+        let gamma_p = Polynomial::new(vec![gamma].into_iter());
+        let r_prime_w = Polynomial::scale(&r_prime, omega);
+        let rw = Polynomial::scale(&r, omega);
+        let fw = Polynomial::scale(&f, omega);
+        let gw = Polynomial::scale(&g, omega);
+        let dividend = (&rw * (&gw + &gamma_p)) - (&r * (&fw + &gamma_p));
+        let mut divisor = Polynomial::new(vec![Scalar::zero(); degree + 1].into_iter());
+        divisor.coefficients[0] = Scalar::one().neg();
+        divisor.coefficients[degree] = Scalar::one();
+        // san check
+        let quotient = &dividend / &divisor;
+        // Prover binds r' and q
+        let comm_r_prime = setup.commit(&r_prime);
+        let comm_q = setup.commit(&quotient);
+
+        // Verifier sends z
+        let z = algebra::rand_scalar();
+
+        // Prover computes z over r_prime_w, fw, gw and r'
+        let z_r_prime_w = r_prime_w.evalulate_at(z);
+        let z_fw = fw.evalulate_at(z);
+        let z_gw = gw.evalulate_at(z);
+        let z_r_prime = r_prime.evalulate_at(z);
+        // TODO: Here for each point, opening check should be performed.
+        // I ommit it for now since we don't have proper generalized interface  
+        // for point-opening check, this will be a lot of code.
+        
+        // san check r and r_prime
+        assert_eq!(
+            r.evalulate_at(z),
+            z_r_prime * (z - domain[degree - 1]) + Scalar::one()
+        );
+        // san check rw and r_prime_w
+        assert_eq!(
+            rw.evalulate_at(z),
+            z_r_prime_w * (z * omega - domain[degree - 1]) + Scalar::one()
+        );
+
+        // Verifier compute the expected y
+        let y = (((z_r_prime_w * (z * omega - domain[degree - 1])) + Scalar::one())
+            * (z_gw + gamma)
+            - (z_r_prime * (z - domain[degree - 1]) + Scalar::one()) * (z_fw + gamma))
+            * (z.pow(&[degree as u64, 0, 0, 0]) - Scalar::one())
+                .invert()
+                .unwrap();
+
+        // open q(z) = y
+        // Prove computes q' = (q - q(y)) / (x - z)
+        let q_prime = &(&quotient - Polynomial::new(vec![quotient.evalulate_at(z)].into_iter()))
+            / &(Polynomial::new(vec![z.neg(), Scalar::one()].into_iter()));
+        let comm_q_prime = setup.commit(&q_prime);
+
+        // Final verification
+        let res = setup.verify_single_poly_single_open(&comm_q, &comm_q_prime, z, y);
+        assert!(res == true);
+    }
+
+    #[test]
+    fn test_multiple_poly_mulitple_points_open() {
         let setup = Setup::new(16);
         // generate 4 points each corresponds to 8 polynomials
         // So there are 4 proofs in total.
@@ -204,7 +302,7 @@ mod tests {
         let setup = Setup::new(32);
         let coeffs = algebra::rand_scalars(32);
         let poly = Polynomial::new(coeffs.into_iter());
-        let z_point = algebra::rand_scalars(1)[0];
+        let z_point = algebra::rand_scalar();
         let y_point = poly.evalulate_at(z_point);
         // dividend = f(X) - y
         let dividend = &poly - &Polynomial::new(vec![y_point.neg()].into_iter());
@@ -245,7 +343,7 @@ mod tests {
     #[test]
     fn test_multiply_poly_single_open() {
         let setup = Setup::new(32);
-        let z_point = algebra::rand_scalars(1)[0];
+        let z_point = algebra::rand_scalar();
         let mut polys = vec![];
         let mut y_points = vec![];
         for i in 0..8 {
