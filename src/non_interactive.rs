@@ -25,6 +25,7 @@ fn prove_multiple_poly_mulitple_points_open(
 ) {
     for unit in units {
         let mut quotients = vec![];
+        let divisor = Polynomial::new(vec![unit.z.neg(), Scalar::one()].into_iter());
         for poly in &unit.ps {
             let y = poly.evalulate_at(unit.z);
             // bind polynomial and its result y
@@ -32,7 +33,6 @@ fn prove_multiple_poly_mulitple_points_open(
             stream.write_scalar(y);
             // calculate quotient
             let dividend = poly - &Polynomial::new(vec![y].into_iter());
-            let divisor = Polynomial::new(vec![unit.z.neg(), Scalar::one()].into_iter());
             quotients.push(&dividend / &divisor);
         }
         // sample gamma
@@ -48,39 +48,19 @@ fn prove_multiple_poly_mulitple_points_open(
     }
 }
 
-// generate proof to prove f_ys is a permutation of g_ys
+// generate proof to prove f(D) is a permutation of g(D)
+// Here I assume f_ys g_ys and domain are given, although it is not necessary
 fn prove_permutation_argument(
     setup: &Setup,
     stream: &mut ProofStream,
-    mut f_ys: Vec<Scalar>,
-    mut g_ys: Vec<Scalar>,
+    f: &Polynomial,
+    g: &Polynomial,
+    f_ys: &Vec<Scalar>,
+    g_ys: &Vec<Scalar>,
+    domain: &Vec<Scalar>,
 ) {
-    // Preparation
-    let degree = f_ys.len().next_power_of_two();
-    // make sure f and g are length of power of 2
-    f_ys.resize(degree, Scalar::zero());
-    g_ys.resize(degree, Scalar::zero());
-
-    let d = Domain::new(degree);
-    let mut domain = vec![];
-    let mut v = Scalar::one();
-    for _ in 0..degree {
-        domain.push(v);
-        v = v * d.generator;
-    }
-    let omega = d.generator;
-
-    // interpolate f and g such that they evaluate to f_ys and g_ys over domain D
-    let mut f_tmp = f_ys.clone();
-    d.invert_fft(&mut f_tmp);
-    let mut g_tmp = g_ys.clone();
-    d.invert_fft(&mut g_tmp);
-    let f = Polynomial::new(f_tmp.into_iter());
-    let g = Polynomial::new(g_tmp.into_iter());
-
-    //
-    // Start the proof
-    //
+    let omega = domain[0];
+    let n = domain.len();
 
     // binds f and g
     let comm_f = setup.commit(&f);
@@ -94,77 +74,151 @@ fn prove_permutation_argument(
     // prover computes r and r'
     // Note: simply abort if divide-by-zero happen
     let mut rv = vec![(f_ys[0] + gamma) * (g_ys[0] + gamma).invert().unwrap()];
-    for i in 1..degree {
+    for i in 1..n {
         rv.push(rv[i - 1] * (f_ys[i] + gamma) * (g_ys[i] + gamma).invert().unwrap())
     }
     let r = Polynomial::fast_interpolate(&domain, &rv);
     let r_prime = &(&r - Polynomial::one())
-        / &(Polynomial::new(vec![domain[degree - 1].neg(), Scalar::one()].into_iter()));
+        / &(Polynomial::new(vec![domain[n - 1].neg(), Scalar::one()].into_iter()));
     // Prove compute q, r_prime_w, fw, gw
     let gamma_p = Polynomial::new(vec![gamma].into_iter());
-    let r_prime_w = Polynomial::shift(&r_prime, omega);
     let rw = Polynomial::shift(&r, omega);
     let fw = Polynomial::shift(&f, omega);
     let gw = Polynomial::shift(&g, omega);
-    let dividend = (&rw * (&gw + &gamma_p)) - (&r * (&fw + &gamma_p));
-    let mut divisor = Polynomial::new(vec![Scalar::zero(); degree + 1].into_iter());
+    let dividend = (rw * (gw + &gamma_p)) - (r * (fw + &gamma_p));
+    let mut divisor = Polynomial::new(vec![Scalar::zero(); n + 1].into_iter());
     divisor.coefficients[0] = Scalar::one().neg();
-    divisor.coefficients[degree] = Scalar::one();
-    let quotient = &dividend / &divisor;
+    divisor.coefficients[n] = Scalar::one();
+    let q = &dividend / &divisor;
     // Prover binds r' and q
     let comm_r_prime = setup.commit(&r_prime);
-    let comm_q = setup.commit(&quotient);
+    let comm_q = setup.commit(&q);
     stream.write_g1_affine(G1Affine::from(comm_r_prime));
     stream.write_g1_affine(G1Affine::from(comm_q));
 
     // sample z
     let z = stream.prover_sample();
-    // generate open proof on z over polynomials: r_prime_w, fw, gw r_prime and quotient
-    // NOTE: from yuncong's note, the result of quotient(z) does not need to be sent
-    // This can save us some space over the stream (48bytes)
-    // However, doing so requires a customized protocol
-    // (where the first four results are sent and only the result of quotient(z) is omitted)
-    // This is too much code and I do not consider it ATM.
-    let proof = vec![ProverProofUnit {
-        z,
-        ps: vec![r_prime_w, fw, gw, r_prime, quotient],
-    }];
-    prove_multiple_poly_mulitple_points_open(setup, stream, &proof);
+
+    // NOTE: it might seem convenient to reuse multiple_poly_multiple_open() here to
+    // generate the proof.
+    // However, since f, g, r_prime, and q were already commited into the stream
+    // Generating another proof and resending commitments is a huge waste of resource.
+    // So code reuse is NOT OK here. we should hand write the protocol.
+
+    // y_fw, y_gw, y_rw
+    // f, g, and r_prime open at z * omega
+    {
+        let ps = vec![f, g, &r_prime];
+        let z = omega * z;
+        let mut quotients = vec![];
+        let divisor = Polynomial::new(vec![z.neg(), Scalar::one()].into_iter());
+        for poly in &ps {
+            let y = poly.evalulate_at(z);
+            stream.write_scalar(y);
+            // calcualte quotient
+            let dividend = *poly - Polynomial::new(vec![y].into_iter());
+            quotients.push(&dividend / &divisor);
+        }
+        // sample gamma
+        let mut gamma = Scalar::one();
+        let sample = stream.prover_sample();
+        let mut comm_q = G1Projective::identity();
+        for i in 0..ps.len() {
+            comm_q += setup.commit(&quotients[i]) * gamma;
+            gamma *= sample
+        }
+        stream.write_g1_affine(G1Affine::from(comm_q));
+    }
+    // y_r, y_q
+    // r_prime and q open at z
+    // NOTE: q needs special treament, we don't send result q(z) and let the verifier calcualtes it.
+    {
+        // r_prime
+        let divisor = Polynomial::new(vec![z.neg(), Scalar::one()].into_iter());
+        let y = r_prime.evalulate_at(z);
+        stream.write_scalar(y);
+        let dividend = r_prime - &Polynomial::new(vec![y].into_iter());
+        let q1 = &dividend / &divisor;
+
+        // q
+        let y = q.evalulate_at(z);
+        let dividend = q - &Polynomial::new(vec![y].into_iter());
+        let q2 = &dividend / &divisor;
+
+        // sample gamma
+        let sample = stream.prover_sample();
+        let mut comm_q = G1Projective::identity();
+        comm_q += setup.commit(&q1);
+        comm_q += setup.commit(&q2) * sample;
+        stream.write_g1_affine(G1Affine::from(comm_q));
+    }
 }
 
-fn verify_permutation_argument(setup: &Setup, stream: &mut ProofStream, degree: usize) -> bool {
-    let d = Domain::new(degree);
-    let mut domain = vec![];
-    let mut v = Scalar::one();
-    for _ in 0..degree {
-        domain.push(v);
-        v = v * d.generator;
-    }
-    let omega = d.generator;
-    stream.read_g1_affine();
-    stream.read_g1_affine();
+fn verify_permutation_argument(
+    setup: &Setup,
+    stream: &mut ProofStream,
+    domain: &Vec<Scalar>,
+) -> bool {
+    let omega = domain[0];
+    let n = domain.len();
+    let comm_f = stream.read_g1_affine();
+    let comm_g = stream.read_g1_affine();
     // sample gamma
-    let gamma = stream.verifier_sample();
-    stream.read_g1_affine();
-    stream.read_g1_affine();
+    let gamma_zero = stream.verifier_sample();
+    let comm_r_prime = stream.read_g1_affine();
+    let comm_q = stream.read_g1_affine();
     // sample z
     let z = stream.verifier_sample();
-    let vproofs = vec![VerifierProofUnit(z, 5)];
-    let (res, vals) = verify_multiple_poly_mulitple_points_open(&setup, stream, &vproofs);
-    if !res {
-        return false;
+
+    let mut sum_f = G1Projective::identity();
+    let mut lhs_sum_w = G1Projective::identity();
+    let mut rhs_sum_w = G1Projective::identity();
+    let mut r = rand_scalars(2);
+    r[0] = Scalar::one();
+    // Calculate F1, W1 (polynomial f, g and r_prime at z*omega)
+    let mut y = vec![];
+    {
+        let comm_ps = vec![comm_f, comm_g, comm_r_prime];
+        for _ in 0..comm_ps.len() {
+            y.push(stream.read_scalar());
+        }
+        // sample gamma
+        let mut gamma = Scalar::one();
+        let sample = stream.verifier_sample();
+        let mut tmp = G1Projective::identity();
+        for i in 0..comm_ps.len() {
+            tmp += comm_ps[i] * gamma - setup.tau_p[0] * (gamma * y[i]);
+            gamma *= sample;
+        }
+        sum_f += tmp * r[0];
+        let w = stream.read_g1_projective();
+        lhs_sum_w += w * (omega * z);
+        rhs_sum_w += w;
     }
-    let z_r_prime_w = vals[0];
-    let z_fw = vals[1];
-    let z_gw = vals[2];
-    let z_r_prime = vals[3];
-    let z_quotient = vals[4];
-    z_quotient
-        == (((z_r_prime_w * (z * omega - domain[degree - 1])) + Scalar::one()) * (z_gw + gamma)
-            - (z_r_prime * (z - domain[degree - 1]) + Scalar::one()) * (z_fw + gamma))
-            * (z.pow(&[degree as u64, 0, 0, 0]) - Scalar::one())
+    // Calculate F2, W2 (polynomial r_prime and q at z)
+    {
+        // y_fw = y[0]
+        // y_gw = y[1]
+        // y_rw = y[2]
+        let y_r = stream.read_scalar();
+        let y_q = (((y[2] * (z * omega - domain[n - 1])) + Scalar::one()) * (y[1] + gamma_zero)
+            - (y_r * (z - domain[n - 1]) + Scalar::one()) * (y[0] + gamma_zero))
+            * (z.pow(&[n as u64, 0, 0, 0]) - Scalar::one())
                 .invert()
-                .unwrap()
+                .unwrap();
+        // sample gamma
+        let sample = stream.verifier_sample();
+        let mut tmp = G1Projective::identity();
+        tmp += comm_r_prime - setup.tau_p[0] * y_r;
+        tmp += comm_q * sample - setup.tau_p[0] * (y_q * sample);
+        sum_f += tmp * r[0];
+        let w = stream.read_g1_projective();
+        lhs_sum_w += w * z * r[1];
+        rhs_sum_w += w * r[1];
+    }
+    let lhs = pairing(&G1Affine::from(sum_f + lhs_sum_w), &G2Affine::generator());
+    let rhs = pairing(&G1Affine::from(rhs_sum_w), &G2Affine::from(setup.tau_v));
+    lhs == rhs
 }
 
 fn verify_multiple_poly_mulitple_points_open(
@@ -241,38 +295,58 @@ mod tests {
 
     #[test]
     fn test_positive_permutation_argument() {
+        let degree = 32;
         let mut rng = thread_rng();
-        // degree 16 < d <= 32
-        let len = 17 + rng.gen::<usize>() % 16;
-        // f_ys
-        let f_ys = rand_scalars(len);
+        // generate domain
+        let d = algebra::Domain::new(degree);
+        let mut domain = vec![];
+        let mut v = Scalar::one();
+        for _ in 0..degree {
+            domain.push(v);
+            v = v * d.generator;
+        }
+        // generate random polynomial f with degree 32
+        let f = Polynomial::new(algebra::rand_scalars(degree).into_iter());
+        // calculate f over d
+        let f_ys = Polynomial::fast_evalulate(&f, &domain);
         let mut g_ys = f_ys.clone();
+        // shuffle values
         g_ys.shuffle(&mut rng);
+        // produce g
+        let g = Polynomial::fast_interpolate(&domain, &g_ys);
+        // Now we have f, g with f(D) and g(D) being permutation of each other
 
+        let setup = Setup::new(degree);
         let mut stream = ProofStream::new();
-        let setup = Setup::new(32);
         // prover work
-        prove_permutation_argument(&setup, &mut stream, f_ys, g_ys);
-        // verifier work
-        let res = verify_permutation_argument(&setup, &mut stream, len.next_power_of_two());
-        assert_eq!(res, true);
+        prove_permutation_argument(&setup, &mut stream, &f, &g, &f_ys, &g_ys, &domain);
+        // Verifier work
+        verify_permutation_argument(&setup, &mut stream, &domain);
     }
 
     #[test]
     fn test_negative_permutation_argument() {
-        let mut rng = thread_rng();
-        // degree 16 < d <= 32
-        let len = 17 + rng.gen::<usize>() % 16;
-        // f_ys != g_ys
-        let f_ys = rand_scalars(len);
-        let g_ys = rand_scalars(len);
+        let degree = 32;
+        // generate domain
+        let d = algebra::Domain::new(degree);
+        let mut domain = vec![];
+        let mut v = Scalar::one();
+        for _ in 0..degree {
+            domain.push(v);
+            v = v * d.generator;
+        }
+        // generate random polynomial f with degree 32
+        let f = Polynomial::new(algebra::rand_scalars(degree).into_iter());
+        // calculate f over d
+        let f_ys = Polynomial::fast_evalulate(&f, &domain);
+        let g = Polynomial::new(algebra::rand_scalars(degree).into_iter());
+        let g_ys = Polynomial::fast_evalulate(&g, &domain);
 
+        let setup = Setup::new(degree);
         let mut stream = ProofStream::new();
-        let setup = Setup::new(32);
         // prover work
-        prove_permutation_argument(&setup, &mut stream, f_ys, g_ys);
-        // verifier work
-        let res = verify_permutation_argument(&setup, &mut stream, len.next_power_of_two());
-        assert_eq!(res, false);
+        prove_permutation_argument(&setup, &mut stream, &f, &g, &f_ys, &g_ys, &domain);
+        // Verifier work
+        verify_permutation_argument(&setup, &mut stream, &domain);
     }
 }
