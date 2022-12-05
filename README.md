@@ -11,7 +11,7 @@ Implemented:
 - [X] Multiple polynomials and multiple points opening.
 - [X] Regression Check 
 - [X] Permutation Argument.
-- [X] fiat-shamir (prototype, needs double-check)
+- [X] fiat-shamir (prototype! Bugs exist! Needs double-check)
 
 Run:
 ```
