@@ -121,7 +121,7 @@ impl Polynomial {
     }
 
     // return f(x) = p(x * s)
-    pub fn scale(poly: &Polynomial, s: Scalar) -> Self {
+    pub fn shift(poly: &Polynomial, s: Scalar) -> Self {
         let mut res = poly.clone();
         let mut tmp = s;
         res.coefficients.iter_mut().skip(1).for_each(|c| {
@@ -132,15 +132,14 @@ impl Polynomial {
     }
 
     pub fn evalulate_at(self: &Self, point: Scalar) -> Scalar {
-        let mut sum = self.coefficients[0].clone();
-        let mut powers = point.clone();
+        let mut res = self.coefficients[0].clone();
+        let mut tmp = point.clone();
 
-        for coefficient in self.coefficients.iter().skip(1) {
-            let term = *coefficient * powers;
-            sum += term;
-            powers *= point;
+        for coeff in self.coefficients.iter().skip(1) {
+            res += *coeff * tmp;
+            tmp *= point;
         }
-        sum
+        res
     }
 
     pub fn degree(self: &Self) -> isize {
@@ -398,7 +397,7 @@ pub mod tests {
     fn test_polynomial_scale() {
         let poly = Polynomial::new(rand_scalars(32).into_iter());
         let scale = rand_scalar();
-        let poly_scale = Polynomial::scale(&poly, scale);
+        let poly_scale = Polynomial::shift(&poly, scale);
         let x = rand_scalar();
         assert_eq!(poly.evalulate_at(x * scale), poly_scale.evalulate_at(x));
     }
@@ -511,7 +510,7 @@ pub mod tests {
     fn test_invert_fft() {
         // generate a random coeffs with degree 32 < d <=  64
         let mut rng = thread_rng();
-        let coeffs = rand_scalars(rng.gen::<usize>() % 32 + 32);
+        let coeffs = rand_scalars(rng.gen::<usize>() % 32 + 33);
 
         // fft result
         let domain = Domain::new(coeffs.len());

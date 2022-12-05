@@ -9,8 +9,9 @@ Implemented:
 - [X] Single polynomial and multiple points opening.
 - [X] Multiple polynomials and single point opening.
 - [X] Multiple polynomials and multiple points opening.
-- [ ] Regression Check 
+- [X] Regression Check 
 - [X] Permutation Argument.
+- [X] fiat-shamir (prototype, needs double-check)
 
 Run:
 ```

@@ -1,11 +1,11 @@
 use crate::algebra;
 use crate::algebra::Polynomial;
-use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
+use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
 use rand::prelude::*;
 
 // Prover get tau_p = {\tau^i * G1}
 // Verifier get tau_v = tau * G2
-struct Setup {
+pub struct Setup {
     pub tau_p: Vec<G1Projective>,
     pub tau_v: G2Projective,
     // Do NOT use, this is So that I can play with commitment on G2 (for single poly multiple points)
@@ -14,7 +14,7 @@ struct Setup {
 
 // A single batch proof contains prover work for
 // z and a set of Polynomial {P_i, y_i}
-struct BatchProof {
+pub struct BatchProof {
     comm_ps: Vec<G1Projective>,
     comm_q: G1Projective,
     ys: Vec<Scalar>,
@@ -145,6 +145,7 @@ impl Setup {
         }
         let lhs = pairing(&G1Affine::from(sum_f + lhs_sum_w), &G2Affine::generator());
         let rhs = pairing(&G1Affine::from(rhs_sum_w), &G2Affine::from(self.tau_v));
+
         lhs == rhs
     }
 }
@@ -207,15 +208,14 @@ mod tests {
             / &(Polynomial::new(vec![domain[degree - 1].neg(), Scalar::one()].into_iter()));
         // Prove compute q, r_prime_w, fw, gw
         let gamma_p = Polynomial::new(vec![gamma].into_iter());
-        let r_prime_w = Polynomial::scale(&r_prime, omega);
-        let rw = Polynomial::scale(&r, omega);
-        let fw = Polynomial::scale(&f, omega);
-        let gw = Polynomial::scale(&g, omega);
+        let r_prime_w = Polynomial::shift(&r_prime, omega);
+        let rw = Polynomial::shift(&r, omega);
+        let fw = Polynomial::shift(&f, omega);
+        let gw = Polynomial::shift(&g, omega);
         let dividend = (&rw * (&gw + &gamma_p)) - (&r * (&fw + &gamma_p));
         let mut divisor = Polynomial::new(vec![Scalar::zero(); degree + 1].into_iter());
         divisor.coefficients[0] = Scalar::one().neg();
         divisor.coefficients[degree] = Scalar::one();
-        // san check
         let quotient = &dividend / &divisor;
         // Prover binds r' and q
         let comm_r_prime = setup.commit(&r_prime);
@@ -230,9 +230,9 @@ mod tests {
         let z_gw = gw.evalulate_at(z);
         let z_r_prime = r_prime.evalulate_at(z);
         // TODO: Here for each point, opening check should be performed.
-        // I ommit it for now since we don't have proper generalized interface  
+        // I ommit it for now since we don't have proper generalized interface
         // for point-opening check, this will be a lot of code.
-        
+
         // san check r and r_prime
         assert_eq!(
             r.evalulate_at(z),
@@ -354,8 +354,7 @@ mod tests {
         // Prover work:
         let mut dividend = Polynomial::zero();
         for i in 0..y_points.len() {
-            // TODO add xx-assign operator
-            dividend = &dividend + &(&polys[i] - &Polynomial::new(vec![y_points[i]].into_iter()));
+            dividend += &(&polys[i] - &Polynomial::new(vec![y_points[i]].into_iter()));
         }
         let divisor = Polynomial::new(vec![z_point.neg(), Scalar::one()].into_iter());
         let quotient = &dividend / &divisor;
