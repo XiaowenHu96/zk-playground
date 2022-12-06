@@ -85,7 +85,6 @@ impl Setup {
 
     // Verify p([z_i]) = [y_i]
     // This uses a commitment over G2, which is not recommended
-    // (why? Performance? Security?)
     // For a work around, use multiple_poly_mulitple_points_open()
     pub fn verify_single_poly_multiple_open(
         &self,
@@ -96,8 +95,6 @@ impl Setup {
     ) -> bool {
         // interpolate I(x) on ([z, y])
         let i = Polynomial::fast_interpolate(&z, &y);
-        // TODO: double-check with yuncong that this is correct.
-        // Can verifier leave the computation of comm_i to prover?
         let comm_i = self.commit(&i);
         // compute commitment of zerofier on G2
         let zerofier = Polynomial::fast_zerofier(z.as_slice());
