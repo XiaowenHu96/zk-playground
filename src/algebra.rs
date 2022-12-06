@@ -1,3 +1,7 @@
+/**
+ * The file implements basic polynomial and realted operations
+ */
+
 use bls12_381::Scalar;
 use rand::prelude::*;
 use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub, SubAssign};

@@ -1,7 +1,12 @@
+/**
+ * This file implements Setup which performs trusted-setup and commitment.
+ * In the tests, basic examples of several protocls are providied.
+ * To see protocls in a non-interactive use case, see tests in stream.rs 
+ */
+
 use crate::algebra;
 use crate::algebra::Polynomial;
-use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
-use rand::prelude::*;
+use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
 
 // Prover get tau_p = {\tau^i * G1}
 // Verifier get tau_v = tau * G2
@@ -150,6 +155,7 @@ impl Setup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::prelude::*;
 
     #[test]
     fn test_permutation_argument() {
@@ -184,8 +190,11 @@ mod tests {
         let setup = Setup::new(degree);
 
         // Prover binds f and g
-        let comm_f = setup.commit(&f);
-        let comm_g = setup.commit(&g);
+        // NOTE: Those values are not used
+        // In the actual Protocol, prover does not need to send cm_f and cm_g
+        // they are given as input to the verififer.
+        let _comm_f = setup.commit(&f);
+        let _comm_g = setup.commit(&g);
 
         // Verifier sends gamma
         let gamma = algebra::rand_scalar();
@@ -215,7 +224,7 @@ mod tests {
         divisor.coefficients[degree] = Scalar::one();
         let quotient = &dividend / &divisor;
         // Prover binds r' and q
-        let comm_r_prime = setup.commit(&r_prime);
+        let _comm_r_prime = setup.commit(&r_prime);
         let comm_q = setup.commit(&quotient);
 
         // Verifier sends z
@@ -226,9 +235,10 @@ mod tests {
         let z_fw = fw.evalulate_at(z);
         let z_gw = gw.evalulate_at(z);
         let z_r_prime = r_prime.evalulate_at(z);
-        // TODO: Here for each point, opening check should be performed.
+        // TODO: Here for each point, open protocol should be performed.
         // I ommit it for now since we don't have proper generalized interface
         // for point-opening check, this will be a lot of code.
+        // stream.rs contains fully implemented protocol
 
         // san check r and r_prime
         assert_eq!(

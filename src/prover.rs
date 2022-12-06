@@ -1,10 +1,14 @@
-use crate::algebra::{rand_scalars, Polynomial};
-use crate::commitment::Setup;
-use crate::stream::ProofStream;
-use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
+/**
+ * This file implements prover part for non-interactive use case.
+ * The prover interacts only with a proofstream.
+ */
 
-// Prover proof unit
-// to open z on each of {P_i}
+use crate::algebra::Polynomial;
+use crate::setup::Setup;
+use crate::stream::ProofStream;
+use bls12_381::{G1Affine, G1Projective, Scalar};
+
+// Prover proof unit for batch proof, open z on each of {P_i}
 pub struct ProverProofUnit {
     pub z: Scalar,
     pub ps: Vec<Polynomial>,

@@ -1,10 +1,15 @@
+/**
+ * This file implements the verifier's part for non-interactive use case.
+ * After prover send over the proofstream, the verifier can use it to verifiy the result.
+ */
+
 use crate::algebra::rand_scalars;
-use crate::commitment::Setup;
+use crate::setup::Setup;
 use crate::stream::ProofStream;
 use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, Scalar};
 
-// Verifier proof unit
-// needs z and set of commitments of {P_i}
+// Verifier proof unit for batch proof
+// We only need z and the set of commitments of {P_i}
 pub struct VerifierProofUnit {
     pub z: Scalar,
     pub comm_ps: Vec<G1Projective>,

@@ -1,3 +1,11 @@
+/**
+ * This file implements a non-interactive proof stream (fiat_shamir)
+ *
+ * TODO: 
+ * 1. hash return u64, we need random sample over Fp
+ * 2. Does the stream need nounce, in case prover needs to sample two random values consecutively
+ */
+
 use bls12_381::{G1Affine, G1Projective, Scalar};
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
@@ -63,8 +71,8 @@ impl ProofStream {
     pub fn prover_sample(&mut self) -> Scalar {
         let mut hasher = DefaultHasher::new();
         self.base.hash(&mut hasher);
-        self.prover_nounce += 1;
         self.prover_nounce.hash(&mut hasher);
+        self.prover_nounce += 1;
         self.stream.hash(&mut hasher);
         Scalar::from(hasher.finish())
     }
@@ -72,8 +80,8 @@ impl ProofStream {
     pub fn verifier_sample(&mut self) -> Scalar {
         let mut hasher = DefaultHasher::new();
         self.base.hash(&mut hasher);
-        self.verifier_nounce += 1;
         self.verifier_nounce.hash(&mut hasher);
+        self.verifier_nounce += 1;
         self.stream[..self.read_index].hash(&mut hasher);
         Scalar::from(hasher.finish())
     }
@@ -84,7 +92,7 @@ mod tests {
     use super::*;
     use crate::algebra;
     use crate::algebra::Polynomial;
-    use crate::commitment::Setup;
+    use crate::setup::Setup;
     use crate::prover::*;
     use crate::verifier::*;
     use bls12_381::{G1Affine, Scalar};
