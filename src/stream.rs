@@ -3,7 +3,7 @@
  *
  * TODO: 
  * 1. hash return u64, we need random sample over Fp
- * 2. Does the stream need nounce, in case prover needs to sample two random values consecutively
+ * 2. Does the stream need nonce, in case prover needs to sample two random values consecutively
  */
 
 use bls12_381::{G1Affine, G1Projective, Scalar};
@@ -20,8 +20,8 @@ pub struct ProofStream {
     stream: Vec<u8>,
     read_index: usize,
     base: u8,
-    prover_nounce: usize,
-    verifier_nounce: usize,
+    prover_nonce: usize,
+    verifier_nonce: usize,
 }
 
 impl ProofStream {
@@ -31,8 +31,8 @@ impl ProofStream {
             stream: vec![],
             read_index: 0,
             base: rng.gen(),
-            prover_nounce: 0,
-            verifier_nounce: 0,
+            prover_nonce: 0,
+            verifier_nonce: 0,
         }
     }
 
@@ -71,8 +71,8 @@ impl ProofStream {
     pub fn prover_sample(&mut self) -> Scalar {
         let mut hasher = DefaultHasher::new();
         self.base.hash(&mut hasher);
-        self.prover_nounce.hash(&mut hasher);
-        self.prover_nounce += 1;
+        self.prover_nonce.hash(&mut hasher);
+        self.prover_nonce += 1;
         self.stream.hash(&mut hasher);
         Scalar::from(hasher.finish())
     }
@@ -80,8 +80,8 @@ impl ProofStream {
     pub fn verifier_sample(&mut self) -> Scalar {
         let mut hasher = DefaultHasher::new();
         self.base.hash(&mut hasher);
-        self.verifier_nounce.hash(&mut hasher);
-        self.verifier_nounce += 1;
+        self.verifier_nonce.hash(&mut hasher);
+        self.verifier_nonce += 1;
         self.stream[..self.read_index].hash(&mut hasher);
         Scalar::from(hasher.finish())
     }
