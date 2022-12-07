@@ -85,6 +85,9 @@ impl Setup {
             &G1Affine::from(comm_p - G1Projective::generator() * y),
             &G2Affine::generator(),
         );
+        // dbg!("{}", lhs);
+        // dbg!("{}", rhs);
+        // assert!(false);
         return lhs == rhs;
     }
 
@@ -312,7 +315,7 @@ mod tests {
         let z_point = algebra::rand_scalar();
         let y_point = poly.evalulate_at(z_point);
         // dividend = f(X) - y
-        let dividend = &poly - &Polynomial::new(vec![y_point.neg()].into_iter());
+        let dividend = &poly - &Polynomial::new(vec![y_point].into_iter());
         // divisor = (x-z)
         let divisor = Polynomial::new(vec![z_point.neg(), Scalar::one()].into_iter());
 

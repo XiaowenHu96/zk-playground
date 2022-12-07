@@ -1,5 +1,7 @@
 /**
  * The file implements basic polynomial and realted operations
+ * Ref: http://www.cs.toronto.edu/~denisp/csc373/docs/tutorial3-adv-writeup.pdf
+ * Ref: https://aszepieniec.github.io/stark-anatomy/faster
  */
 
 use bls12_381::Scalar;
