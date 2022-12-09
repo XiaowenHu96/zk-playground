@@ -1,11 +1,10 @@
 /**
  * This file implements a non-interactive proof stream (fiat_shamir)
  *
- * TODO: 
+ * TODO:
  * 1. hash return u64, we need random sample over Fp
  * 2. Does the stream need nonce, in case prover needs to sample two random values consecutively
  */
-
 use bls12_381::{G1Affine, G1Projective, Scalar};
 use rand::prelude::*;
 use std::collections::hash_map::DefaultHasher;
@@ -91,9 +90,9 @@ impl ProofStream {
 mod tests {
     use super::*;
     use crate::algebra;
-    use crate::algebra::Polynomial;
-    use crate::setup::Setup;
+    use crate::algebra::{Domain, Polynomial};
     use crate::prover::*;
+    use crate::setup::Setup;
     use crate::verifier::*;
     use bls12_381::{G1Affine, Scalar};
 
@@ -223,5 +222,65 @@ mod tests {
             &domain,
         );
         assert!(res == false)
+    }
+
+    #[test]
+    fn test_positive_permutation_argument_2n() {
+        let n = 32;
+        let d = Domain::new(n);
+        let mut domain = vec![];
+        let mut v = Scalar::one();
+        for _ in 0..n {
+            domain.push(v);
+            v = v * d.generator;
+        }
+        let mut rng = thread_rng();
+        let f_ys = algebra::rand_scalars(2 * n);
+        let mut g_ys = f_ys.clone();
+        g_ys.shuffle(&mut rng);
+        let f1_ys = f_ys[0..n].to_vec();
+        let f2_ys = f_ys[n..].to_vec();
+        let g1_ys = g_ys[0..n].to_vec();
+        let g2_ys = g_ys[n..].to_vec();
+        let mut f1_coeffs = f1_ys.clone();
+        let mut f2_coeffs = f2_ys.clone();
+        let mut g1_coeffs = g1_ys.clone();
+        let mut g2_coeffs = g2_ys.clone();
+        d.invert_fft(&mut f1_coeffs);
+        d.invert_fft(&mut f2_coeffs);
+        d.invert_fft(&mut g1_coeffs);
+        d.invert_fft(&mut g2_coeffs);
+        let f1 = Polynomial::new(f1_coeffs.into_iter());
+        let f2 = Polynomial::new(f2_coeffs.into_iter());
+        let g1 = Polynomial::new(g1_coeffs.into_iter());
+        let g2 = Polynomial::new(g2_coeffs.into_iter());
+
+        let mut stream = ProofStream::new();
+        let setup = Setup::new(2 * n);
+        // prover work
+        prove_permutation_argument_2n(
+            &setup,
+            &mut stream,
+            &f1,
+            &f2,
+            &g1,
+            &g2,
+            &f1_ys,
+            &f2_ys,
+            &g1_ys,
+            &g2_ys,
+            &domain,
+        );
+        // Verifier work
+        let res = verify_permutation_argument_2n(
+            &setup,
+            &mut stream,
+            setup.commit(&f1),
+            setup.commit(&f2),
+            setup.commit(&g1),
+            setup.commit(&g2),
+            &domain,
+        );
+        assert!(res == true)
     }
 }
