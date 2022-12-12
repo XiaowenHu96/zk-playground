@@ -3,7 +3,6 @@
  * Ref: http://www.cs.toronto.edu/~denisp/csc373/docs/tutorial3-adv-writeup.pdf
  * Ref: https://aszepieniec.github.io/stark-anatomy/faster
  */
-
 use bls12_381::Scalar;
 use rand::prelude::*;
 use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
@@ -318,11 +317,23 @@ impl Domain {
         }
     }
 
+    pub fn fft_eval(&self, sequence: &Vec<Scalar>) -> Vec<Scalar> {
+        let mut res = sequence.clone();
+        self.fft(&mut res);
+        res
+    }
+
     pub fn fft(&self, sequence: &mut Vec<Scalar>) {
         assert!(sequence.len() <= (1 << self.log_size));
         // pad sequence with zeros so that it has len which is a power of two
         sequence.resize(self.size, Scalar::zero());
         *sequence = actual_fft(self.generator, sequence)
+    }
+
+    pub fn invert_fft_interpolate(&self, sequence: &Vec<Scalar>) -> Polynomial {
+        let mut res = sequence.clone();
+        self.invert_fft(&mut res);
+        Polynomial::new(res.into_iter())
     }
 
     // Fast interpolation with inverse Fast Fourier Transform

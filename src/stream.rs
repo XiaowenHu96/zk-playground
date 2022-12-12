@@ -156,23 +156,14 @@ mod tests {
     fn test_positive_permutation_argument() {
         let degree = 32;
         let mut rng = thread_rng();
-        // generate domain
-        let d = algebra::Domain::new(degree);
-        let mut domain = vec![];
-        let mut v = Scalar::one();
-        for _ in 0..degree {
-            domain.push(v);
-            v = v * d.generator;
-        }
+        let domain = algebra::Domain::new(degree);
         // generate random polynomial f with degree 32
-        let f = Polynomial::new(algebra::rand_scalars(degree).into_iter());
-        // calculate f over d
-        let f_ys = Polynomial::fast_evalulate(&f, &domain);
+        let f_ys = algebra::rand_scalars(32);
         let mut g_ys = f_ys.clone();
-        // shuffle values
         g_ys.shuffle(&mut rng);
-        // produce g
-        let g = Polynomial::fast_interpolate(&domain, &g_ys);
+
+        let f = domain.invert_fft_interpolate(&f_ys);
+        let g = domain.invert_fft_interpolate(&g_ys);
         // Now we have f, g with f(D) and g(D) being permutation of each other
 
         let setup = Setup::new(degree);
@@ -194,20 +185,15 @@ mod tests {
     fn test_negative_permutation_argument() {
         let degree = 32;
         let mut rng = thread_rng();
-        let d = algebra::Domain::new(degree);
-        let mut domain = vec![];
-        let mut v = Scalar::one();
-        for _ in 0..degree {
-            domain.push(v);
-            v = v * d.generator;
-        }
-        let f = Polynomial::new(algebra::rand_scalars(degree).into_iter());
-        let f_ys = Polynomial::fast_evalulate(&f, &domain);
+        let domain = algebra::Domain::new(degree);
+        // generate random polynomial f with degree 32
+        let f_ys = algebra::rand_scalars(32);
         let mut g_ys = f_ys.clone();
-        // one value differs
         g_ys[0] = Scalar::one();
         g_ys.shuffle(&mut rng);
-        let g = Polynomial::fast_interpolate(&domain, &g_ys);
+
+        let f = domain.invert_fft_interpolate(&f_ys);
+        let g = domain.invert_fft_interpolate(&g_ys);
 
         let setup = Setup::new(degree);
         let mut stream = ProofStream::new();
@@ -227,13 +213,7 @@ mod tests {
     #[test]
     fn test_positive_permutation_argument_2n() {
         let n = 32;
-        let d = Domain::new(n);
-        let mut domain = vec![];
-        let mut v = Scalar::one();
-        for _ in 0..n {
-            domain.push(v);
-            v = v * d.generator;
-        }
+        let domain = Domain::new(n);
         let mut rng = thread_rng();
         let f_ys = algebra::rand_scalars(2 * n);
         let mut g_ys = f_ys.clone();
@@ -242,18 +222,10 @@ mod tests {
         let f2_ys = f_ys[n..].to_vec();
         let g1_ys = g_ys[0..n].to_vec();
         let g2_ys = g_ys[n..].to_vec();
-        let mut f1_coeffs = f1_ys.clone();
-        let mut f2_coeffs = f2_ys.clone();
-        let mut g1_coeffs = g1_ys.clone();
-        let mut g2_coeffs = g2_ys.clone();
-        d.invert_fft(&mut f1_coeffs);
-        d.invert_fft(&mut f2_coeffs);
-        d.invert_fft(&mut g1_coeffs);
-        d.invert_fft(&mut g2_coeffs);
-        let f1 = Polynomial::new(f1_coeffs.into_iter());
-        let f2 = Polynomial::new(f2_coeffs.into_iter());
-        let g1 = Polynomial::new(g1_coeffs.into_iter());
-        let g2 = Polynomial::new(g2_coeffs.into_iter());
+        let f1 = domain.invert_fft_interpolate(&f1_ys);
+        let f2 = domain.invert_fft_interpolate(&f2_ys);
+        let g1 = domain.invert_fft_interpolate(&g1_ys);
+        let g2 = domain.invert_fft_interpolate(&g2_ys);
 
         let mut stream = ProofStream::new();
         let setup = Setup::new(2 * n);

@@ -2,7 +2,7 @@
  * This file implements the verifier's part for non-interactive use case.
  * After prover send over the proofstream, the verifier can use it to verifiy the result.
  */
-use crate::algebra::rand_scalars;
+use crate::algebra::{rand_scalars, Domain};
 use crate::setup::Setup;
 use crate::stream::ProofStream;
 use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, Scalar};
@@ -39,10 +39,10 @@ pub fn verify_permutation_argument_2n(
     comm_f2: G1Projective,
     comm_g1: G1Projective,
     comm_g2: G1Projective,
-    domain: &Vec<Scalar>,
+    domain: &Domain,
 ) -> bool {
-    let omega = domain[1];
-    let n = domain.len();
+    let omega = domain.generator;
+    let n = domain.size;
     // sample gamma
     let gamma = stream.verifier_sample();
     let comm_r_prime = stream.read_g1_projective();
@@ -68,10 +68,10 @@ pub fn verify_permutation_argument_2n(
     let sample = stream.verifier_sample();
     let mut tmp = G1Projective::identity();
     let y_r = stream.read_scalar();
-    let y_q = (((ys[4] * (z * omega - domain[n - 1])) + Scalar::one())
+    let y_q = (((ys[4] * (z * omega - domain.invert_generator)) + Scalar::one())
         * (ys[2] + gamma)
         * (ys[3] + gamma)
-        - (y_r * (z - domain[n - 1]) + Scalar::one())
+        - (y_r * (z - domain.invert_generator) + Scalar::one())
             * (ys[0] + gamma)
             * (ys[1] + gamma))
         * (z.pow(&[n as u64, 0, 0, 0]) - Scalar::one())
@@ -94,10 +94,10 @@ pub fn verify_permutation_argument(
     stream: &mut ProofStream,
     comm_f: G1Projective,
     comm_g: G1Projective,
-    domain: &Vec<Scalar>,
+    domain: &Domain,
 ) -> bool {
-    let omega = domain[1];
-    let n = domain.len();
+    let omega = domain.generator;
+    let n = domain.size;
     // sample gamma
     let gamma = stream.verifier_sample();
     let comm_r_prime = stream.read_g1_projective();
@@ -122,8 +122,8 @@ pub fn verify_permutation_argument(
     let mut tmp = G1Projective::identity();
     // y_fw = ys[0] y_gw = ys[1] y_rw = ys[2]
     let y_r = stream.read_scalar();
-    let y_q = (((ys[2] * (z * omega - domain[n - 1])) + Scalar::one()) * (ys[1] + gamma)
-        - (y_r * (z - domain[n - 1]) + Scalar::one()) * (ys[0] + gamma))
+    let y_q = (((ys[2] * (z * omega - domain.invert_generator)) + Scalar::one()) * (ys[1] + gamma)
+        - (y_r * (z - domain.invert_generator) + Scalar::one()) * (ys[0] + gamma))
         * (z.pow(&[n as u64, 0, 0, 0]) - Scalar::one())
             .invert()
             .unwrap();

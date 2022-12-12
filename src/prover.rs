@@ -2,7 +2,7 @@
  * This file implements prover part for non-interactive use case.
  * The prover interacts only with a proofstream.
  */
-use crate::algebra::Polynomial;
+use crate::algebra::{Domain, Polynomial};
 use crate::setup::Setup;
 use crate::stream::ProofStream;
 use bls12_381::{G1Affine, G1Projective, Scalar};
@@ -66,6 +66,66 @@ pub fn prove_multiple_poly_mulitple_points_open(
     }
 }
 
+// TODO: Caller should prepare sorted f_y and sorted t for performance
+// This requires implementing ord for Scalar
+// TODO: Waiting for yuncong's update on the protocol
+pub fn prove_lookup(
+    setup: &Setup,
+    stream: &mut ProofStream,
+    f: &Polynomial,
+    f_y: &Vec<Scalar>,
+    domain: &Domain,
+    t: &Polynomial,
+    t_y: &Vec<Scalar>,
+) {
+    let n = domain.size;
+    let omega = domain.generator;
+    assert!(t_y.len() == f_y.len());
+    // construct s
+    let mut s = t_y.clone();
+    s.reserve(t_y.len() * 2);
+    for v in f_y {
+        for j in 0..s.len() {
+            if s[j] == *v {
+                s.insert(j, *v);
+            } else {
+                assert!(false, "FATAL: Not a subset.");
+            }
+        }
+    }
+    assert!(s.len() == t_y.len() * 2);
+    let s1_y = s[0..s.len()].to_vec();
+    let s2_y = s[s.len()..].to_vec();
+    let s1 = domain.invert_fft_interpolate(&s1_y);
+    let s2 = domain.invert_fft_interpolate(&s2_y);
+    stream.write_g1_affine(G1Affine::from(setup.commit(&s1)));
+    stream.write_g1_affine(G1Affine::from(setup.commit(&s2)));
+    // sample alpha
+    let alpha = stream.prover_sample();
+    let alpha_p = Polynomial::new(vec![alpha].into_iter());
+    let s1w = Polynomial::shift(&s1, omega);
+    let s2w = Polynomial::shift(&s2, omega);
+    let tw = Polynomial::shift(&t, omega);
+    let mut dividend = Polynomial::new(vec![Scalar::zero(); n + 1].into_iter());
+    dividend.coefficients[0] = Scalar::one().neg();
+    dividend.coefficients[n] = Scalar::one();
+    let n_scalar = Scalar::from(n as u64);
+    let divisor = Polynomial::new(vec![n_scalar.neg(), n_scalar * omega].into_iter());
+    let lambda = &divisor / &divisor; // TODO this is not correct, cannot divide
+    let f1 = s1 + &alpha_p * (&s1w * (Polynomial::one() - &lambda)) + &s2w * &lambda;
+    let f2 = s2 + &alpha_p * (&s2w * (Polynomial::one() - &lambda)) + &s1w * &lambda;
+    let g1 = t + &alpha_p * tw;
+    let g2 = (&alpha_p + Polynomial::one()) * f;
+    let f1_y = domain.fft_eval(&f1.coefficients);
+    let f2_y = domain.fft_eval(&f2.coefficients);
+    let g1_y = domain.fft_eval(&g1.coefficients);
+    let g2_y = domain.fft_eval(&g2.coefficients);
+
+    prove_permutation_argument_2n(
+        setup, stream, &f1, &f2, &g1, &g2, &f1_y, &f2_y, &g1_y, &g2_y, &domain,
+    );
+}
+
 pub fn prove_permutation_argument_2n(
     setup: &Setup,
     stream: &mut ProofStream,
@@ -77,10 +137,10 @@ pub fn prove_permutation_argument_2n(
     f2_ys: &Vec<Scalar>,
     g1_ys: &Vec<Scalar>,
     g2_ys: &Vec<Scalar>,
-    domain: &Vec<Scalar>,
+    domain: &Domain,
 ) {
-    let omega = domain[1];
-    let n = domain.len();
+    let omega = domain.generator;
+    let n = domain.size;
 
     // sample gamma
     let gamma = stream.prover_sample();
@@ -96,14 +156,12 @@ pub fn prove_permutation_argument_2n(
             rv[i - 1]
                 * ((f1_ys[i] + gamma)
                     * (f2_ys[i] + gamma)
-                    * ((g1_ys[i] + gamma) * (g2_ys[i] + gamma))
-                        .invert()
-                        .unwrap()),
+                    * ((g1_ys[i] + gamma) * (g2_ys[i] + gamma)).invert().unwrap()),
         )
     }
-    let r = Polynomial::fast_interpolate(&domain, &rv);
+    let r = domain.invert_fft_interpolate(&rv);
     let r_prime = &(&r - Polynomial::one())
-        / &Polynomial::new(vec![domain[n - 1].neg(), Scalar::one()].into_iter());
+        / &Polynomial::new(vec![domain.invert_generator.neg(), Scalar::one()].into_iter());
     let gamma_p = Polynomial::new(vec![gamma].into_iter());
     let rw = Polynomial::shift(&r, omega);
     let f1w = Polynomial::shift(&f1, omega);
@@ -136,12 +194,7 @@ pub fn prove_permutation_argument_2n(
 
     {
         // open z at r_prime and q, but do not send q(z)
-        prepare_multiple_poly_single_point_open!(
-            setup,
-            stream,
-            z,
-            [(r_prime), (q, do_not_send_y)]
-        );
+        prepare_multiple_poly_single_point_open!(setup, stream, z, [(r_prime), (q, do_not_send_y)]);
     }
 }
 
@@ -153,10 +206,10 @@ pub fn prove_permutation_argument(
     g: &Polynomial,
     f_ys: &Vec<Scalar>,
     g_ys: &Vec<Scalar>,
-    domain: &Vec<Scalar>,
+    domain: &Domain,
 ) {
-    let omega = domain[1];
-    let n = domain.len();
+    let omega = domain.generator;
+    let n = domain.size;
 
     // sample gamma
     let gamma = stream.prover_sample();
@@ -167,9 +220,9 @@ pub fn prove_permutation_argument(
     for i in 1..n {
         rv.push(rv[i - 1] * (f_ys[i] + gamma) * (g_ys[i] + gamma).invert().unwrap())
     }
-    let r = Polynomial::fast_interpolate(&domain, &rv);
+    let r = domain.invert_fft_interpolate(&rv);
     let r_prime = &(&r - Polynomial::one())
-        / &(Polynomial::new(vec![domain[n - 1].neg(), Scalar::one()].into_iter()));
+        / &(Polynomial::new(vec![domain.invert_generator.neg(), Scalar::one()].into_iter()));
     // Prove compute q, r_prime_w, fw, gw
     let gamma_p = Polynomial::new(vec![gamma].into_iter());
     let rw = Polynomial::shift(&r, omega);
@@ -197,11 +250,6 @@ pub fn prove_permutation_argument(
     {
         // r_prime and q open at z (y_r and y_q)
         // NOTE: q needs special treament, we don't send result q(z) and let the verifier calcualtes it.
-        prepare_multiple_poly_single_point_open!(
-            setup,
-            stream,
-            z,
-            [(r_prime), (q, do_not_send_y)]
-        );
+        prepare_multiple_poly_single_point_open!(setup, stream, z, [(r_prime), (q, do_not_send_y)]);
     }
 }
