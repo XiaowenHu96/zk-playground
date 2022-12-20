@@ -19,5 +19,5 @@ Run:
 ```
 git submodule init
 git submodule update
-cargo test
+cargo test --release
 ```
