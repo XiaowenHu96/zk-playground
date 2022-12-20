@@ -228,6 +228,7 @@ mod tests {
         let g2 = domain.invert_fft_interpolate(&g2_ys);
 
         let mut stream = ProofStream::new();
+        // Make sure we supprot polynomial of degree 2n (for the quotient polynomial)
         let setup = Setup::new(2 * n);
         // prover work
         prove_permutation_argument_2n(
@@ -254,5 +255,51 @@ mod tests {
             &domain,
         );
         assert!(res == true)
+    }
+
+    #[test]
+    fn test_lookup() {
+        let n = 64;
+        let domain = Domain::new(n);
+        let t_y = algebra::rand_scalars(n);
+        let mut f_y = t_y[0..n / 2].to_vec();
+        for v in f_y.clone() {
+            f_y.push(v);
+        }
+
+        let f = domain.invert_fft_interpolate(&f_y);
+        let t = domain.invert_fft_interpolate(&t_y);
+        let mut stream = ProofStream::new();
+        let setup = Setup::new(2 * n);
+
+        prove_lookup(&setup, &mut stream, &f, &f_y, &t, &t_y, &domain);
+        let comm_f = setup.commit(&f);
+        let comm_t = setup.commit(&t);
+        let res = verify_lookup(&setup, &mut stream, comm_f, comm_t, &domain);
+        assert!(res == true);
+    }
+
+    #[test]
+    fn test_negative_lookup() {
+        let n = 64;
+        let domain = Domain::new(n);
+        let t_y = algebra::rand_scalars(n);
+        let mut f_y = t_y[0..n / 2].to_vec();
+        for v in f_y.clone() {
+            f_y.push(v);
+        }
+        f_y.pop();
+        f_y.push(Scalar::one()); // one of the element is not in t
+
+        let f = domain.invert_fft_interpolate(&f_y);
+        let t = domain.invert_fft_interpolate(&t_y);
+        let mut stream = ProofStream::new();
+        let setup = Setup::new(2 * n);
+
+        prove_lookup(&setup, &mut stream, &f, &f_y, &t, &t_y, &domain);
+        let comm_f = setup.commit(&f);
+        let comm_t = setup.commit(&t);
+        let res = verify_lookup(&setup, &mut stream, comm_f, comm_t, &domain);
+        assert!(res == false);
     }
 }

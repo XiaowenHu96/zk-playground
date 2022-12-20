@@ -6,6 +6,7 @@ use crate::algebra::{Domain, Polynomial};
 use crate::setup::Setup;
 use crate::stream::ProofStream;
 use bls12_381::{G1Affine, G1Projective, Scalar};
+use std::collections::HashMap;
 
 // Prover proof unit for batch proof, open z on each of {P_i}
 pub struct ProverProofUnit {
@@ -66,64 +67,119 @@ pub fn prove_multiple_poly_mulitple_points_open(
     }
 }
 
-// TODO: Caller should prepare sorted f_y and sorted t for performance
-// This requires implementing ord for Scalar
-// TODO: Waiting for yuncong's update on the protocol
+// prove for every y \in f_y, we have y \in t_y.
 pub fn prove_lookup(
     setup: &Setup,
     stream: &mut ProofStream,
     f: &Polynomial,
     f_y: &Vec<Scalar>,
-    domain: &Domain,
     t: &Polynomial,
     t_y: &Vec<Scalar>,
+    domain: &Domain,
 ) {
-    let n = domain.size;
     let omega = domain.generator;
+    let n = domain.size;
     assert!(t_y.len() == f_y.len());
-    // construct s
-    let mut s = t_y.clone();
-    s.reserve(t_y.len() * 2);
+    // construct S
+    let mut counter = HashMap::new();
     for v in f_y {
-        for j in 0..s.len() {
-            if s[j] == *v {
-                s.insert(j, *v);
-            } else {
-                assert!(false, "FATAL: Not a subset.");
-            }
+        let count = counter.entry(v.to_bytes()).or_insert(0);
+        *count += 1;
+    }
+    let mut s = vec![];
+    s.reserve_exact(t_y.len() * 2);
+    for v in t_y {
+        let n = counter.get(&v.to_bytes()).unwrap_or(&0);
+        for _ in 0..n + 1 {
+            s.push(v.clone());
         }
     }
-    assert!(s.len() == t_y.len() * 2);
-    let s1_y = s[0..s.len()].to_vec();
-    let s2_y = s[s.len()..].to_vec();
+
+    // construct s1 and s2
+    let s1_y: Vec<Scalar> = s.clone().into_iter().step_by(2).collect();
+    let s2_y: Vec<Scalar> = s.clone().into_iter().skip(1).step_by(2).collect();
     let s1 = domain.invert_fft_interpolate(&s1_y);
     let s2 = domain.invert_fft_interpolate(&s2_y);
     stream.write_g1_affine(G1Affine::from(setup.commit(&s1)));
     stream.write_g1_affine(G1Affine::from(setup.commit(&s2)));
+
     // sample alpha
     let alpha = stream.prover_sample();
-    let alpha_p = Polynomial::new(vec![alpha].into_iter());
+    let as2 = Polynomial::scale(&s2, alpha);
     let s1w = Polynomial::shift(&s1, omega);
-    let s2w = Polynomial::shift(&s2, omega);
+    let as1w = Polynomial::scale(&s1w, alpha);
     let tw = Polynomial::shift(&t, omega);
-    let mut dividend = Polynomial::new(vec![Scalar::zero(); n + 1].into_iter());
-    dividend.coefficients[0] = Scalar::one().neg();
-    dividend.coefficients[n] = Scalar::one();
-    let n_scalar = Scalar::from(n as u64);
-    let divisor = Polynomial::new(vec![n_scalar.neg(), n_scalar * omega].into_iter());
-    let lambda = &divisor / &divisor; // TODO this is not correct, cannot divide
-    let f1 = s1 + &alpha_p * (&s1w * (Polynomial::one() - &lambda)) + &s2w * &lambda;
-    let f2 = s2 + &alpha_p * (&s2w * (Polynomial::one() - &lambda)) + &s1w * &lambda;
-    let g1 = t + &alpha_p * tw;
-    let g2 = (&alpha_p + Polynomial::one()) * f;
-    let f1_y = domain.fft_eval(&f1.coefficients);
-    let f2_y = domain.fft_eval(&f2.coefficients);
-    let g1_y = domain.fft_eval(&g1.coefficients);
-    let g2_y = domain.fft_eval(&g2.coefficients);
+    let atw = Polynomial::scale(&tw, alpha);
+    let f1 = &s1 + &as2;
+    let f2 = &s2 + &as1w;
+    let g1 = t + &atw;
+    let g2 = Polynomial::scale(f, alpha + Scalar::one());
+    let f1_ys = domain.fft_eval(&f1.coefficients);
+    let f2_ys = domain.fft_eval(&f2.coefficients);
+    let g1_ys = domain.fft_eval(&g1.coefficients);
+    let g2_ys = domain.fft_eval(&g2.coefficients);
 
-    prove_permutation_argument_2n(
-        setup, stream, &f1, &f2, &g1, &g2, &f1_y, &f2_y, &g1_y, &g2_y, &domain,
+    // sample gamma
+    let gamma = stream.prover_sample();
+
+    let mut rv = vec![];
+    rv.push(
+        (f1_ys[0] + gamma)
+            * (f2_ys[0] + gamma)
+            * ((g1_ys[0] + gamma) * (g2_ys[0] + gamma)).invert().unwrap(),
     );
+    for i in 1..n {
+        rv.push(
+            rv[i - 1]
+                * ((f1_ys[i] + gamma)
+                    * (f2_ys[i] + gamma)
+                    * ((g1_ys[i] + gamma) * (g2_ys[i] + gamma)).invert().unwrap()),
+        )
+    }
+    let r = domain.invert_fft_interpolate(&rv);
+    let r_prime = &(&r - Polynomial::one())
+        / &Polynomial::new(vec![domain.invert_generator.neg(), Scalar::one()].into_iter());
+    let gamma_p = Polynomial::new(vec![gamma].into_iter());
+    let rw = Polynomial::shift(&r, omega);
+    let f1w = Polynomial::shift(&f1, omega);
+    let g1w = Polynomial::shift(&g1, omega);
+    let f2w = Polynomial::shift(&f2, omega);
+    let g2w = Polynomial::shift(&g2, omega);
+    let dividend =
+        (rw * (g1w + &gamma_p) * (g2w + &gamma_p)) - (r * (f1w + &gamma_p) * (f2w + &gamma_p));
+    let mut divisor = Polynomial::new(vec![Scalar::zero(); n + 1].into_iter());
+    divisor.coefficients[0] = Scalar::one().neg();
+    divisor.coefficients[n] = Scalar::one();
+    let q = &dividend / &divisor;
+    let comm_r_prime = setup.commit(&r_prime);
+    let comm_q = setup.commit(&q);
+    stream.write_g1_affine(G1Affine::from(comm_r_prime));
+    stream.write_g1_affine(G1Affine::from(comm_q));
+
+    // Regular 2n permutation opens zw at [f1 f2 g1 g2 r_prime] and z at [r_prime, q]
+    // for lookup, this is the same as open
+    // zw^2 at [s1, t]
+    // zw at [s1, s2, t, f, r_prime]
+    // z at [r_prime, q]
+
+    // sample z
+    let z = stream.prover_sample();
+    {
+        let z = omega * omega * z;
+        prepare_multiple_poly_single_point_open!(setup, stream, z, [(&s1), (t)]);
+    }
+    {
+        let z = omega * z;
+        prepare_multiple_poly_single_point_open!(
+            setup,
+            stream,
+            z,
+            [(s1), (s2), (t), (f), (&r_prime)]
+        );
+    }
+    {
+        prepare_multiple_poly_single_point_open!(setup, stream, z, [(r_prime), (q, do_not_send_y)]);
+    }
 }
 
 pub fn prove_permutation_argument_2n(

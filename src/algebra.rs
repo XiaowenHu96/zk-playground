@@ -125,6 +125,12 @@ impl Polynomial {
         Polynomial::new(vec![Scalar::one()].into_iter())
     }
 
+    // return f(x) = s * p(x)
+    pub fn scale(poly: &Polynomial, s: Scalar) -> Self {
+        let coeffs = poly.coefficients.iter().map(|x| x * s);
+        Polynomial::new(coeffs)
+    }
+
     // return f(x) = p(x * s)
     pub fn shift(poly: &Polynomial, s: Scalar) -> Self {
         let mut res = poly.clone();
