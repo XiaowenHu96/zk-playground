@@ -1,9 +1,8 @@
 /**
  * This file implements Setup which performs trusted-setup and commitment.
  * In the tests, basic examples of several protocls are providied.
- * To see protocls in a non-interactive use case, see tests in stream.rs 
+ * To see protocls in a non-interactive use case, see tests in stream.rs
  */
-
 use crate::algebra;
 use crate::algebra::Polynomial;
 use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Scalar};
@@ -14,7 +13,7 @@ pub struct Setup {
     pub tau_p: Vec<G1Projective>,
     pub tau_v: G2Projective,
     // Do NOT use, this is So that I can play with commitment on G2 (for single poly multiple points)
-    tau_vs: Vec<G2Projective>,
+    // tau_vs: Vec<G2Projective>, //xiaowen: removed, slowing down bench too much (for range proof)
 }
 
 // A single batch proof contains prover work for
@@ -29,26 +28,26 @@ pub struct BatchProof {
 impl Setup {
     pub fn new(degree: usize) -> Self {
         let tau = algebra::rand_scalar();
-
-        let mut tau_p: Vec<G1Projective> = vec![];
-        let mut tmp = Scalar::one();
-        let g1 = G1Projective::generator();
-        for _ in 0..degree {
-            tau_p.push(g1 * tmp);
-            tmp *= tau;
+        let mut tau_p: Vec<G1Projective> = vec![G1Projective::generator(); degree];
+        // let mut tmp = Scalar::one();
+        // let g1 = G1Projective::generator();
+        for i in 1..degree {
+            tau_p[i] = tau_p[i - 1] * tau;
+            // tau_p.push(g1 * tmp);
+            // tmp *= tau;
         }
 
-        let mut tau_vs: Vec<G2Projective> = vec![];
-        let g2 = G2Projective::generator();
-        let mut tmp = Scalar::one();
-        for _ in 0..degree {
-            tau_vs.push(g2 * tmp);
-            tmp *= tau;
-        }
+        // let mut tau_vs: Vec<G2Projective> = vec![];
+        // let g2 = G2Projective::generator();
+        // let mut tmp = Scalar::one();
+        // for _ in 0..degree {
+        //     tau_vs.push(g2 * tmp);
+        //     tmp *= tau;
+        // }
         Self {
             tau_p,
             tau_v: G2Projective::generator() * tau,
-            tau_vs,
+            // tau_vs: vec![],
         }
     }
 
@@ -61,13 +60,13 @@ impl Setup {
     }
 
     // Do NOT use, this is So that I can play with commitment on G2 (for single poly multiple points)
-    pub fn commit_g2(&self, polynomial: &Polynomial) -> G2Projective {
-        let mut res = G2Projective::identity();
-        for i in 0..=polynomial.degree() as usize {
-            res += self.tau_vs[i] * polynomial.coefficients[i]
-        }
-        res
-    }
+    // pub fn commit_g2(&self, polynomial: &Polynomial) -> G2Projective {
+    //     let mut res = G2Projective::identity();
+    //     for i in 0..=polynomial.degree() as usize {
+    //         res += self.tau_vs[i] * polynomial.coefficients[i]
+    //     }
+    //     res
+    // }
 
     // Verify p(z) = y by checking (comm_p - y) = (comm_q) * (x - z)
     pub fn verify_single_poly_single_open(
@@ -94,23 +93,23 @@ impl Setup {
     // Verify p([z_i]) = [y_i]
     // This uses a commitment over G2, which is not recommended
     // For a work around, use multiple_poly_mulitple_points_open()
-    pub fn verify_single_poly_multiple_open(
-        &self,
-        comm_p: &G1Projective,
-        comm_q: &G1Projective,
-        z: Vec<Scalar>,
-        y: Vec<Scalar>,
-    ) -> bool {
-        // interpolate I(x) on ([z, y])
-        let i = Polynomial::fast_interpolate(&z, &y);
-        let comm_i = self.commit(&i);
-        // compute commitment of zerofier on G2
-        let zerofier = Polynomial::fast_zerofier(z.as_slice());
-        let comm_z = self.commit_g2(&zerofier);
-        let lhs = pairing(&G1Affine::from(comm_q), &G2Affine::from(comm_z));
-        let rhs = pairing(&G1Affine::from(comm_p - comm_i), &G2Affine::generator());
-        return lhs == rhs;
-    }
+    // pub fn verify_single_poly_multiple_open(
+    //     &self,
+    //     comm_p: &G1Projective,
+    //     comm_q: &G1Projective,
+    //     z: Vec<Scalar>,
+    //     y: Vec<Scalar>,
+    // ) -> bool {
+    //     // interpolate I(x) on ([z, y])
+    //     let i = Polynomial::fast_interpolate(&z, &y);
+    //     let comm_i = self.commit(&i);
+    //     // compute commitment of zerofier on G2
+    //     let zerofier = Polynomial::fast_zerofier(z.as_slice());
+    //     let comm_z = self.commit_g2(&zerofier);
+    //     let lhs = pairing(&G1Affine::from(comm_q), &G2Affine::from(comm_z));
+    //     let rhs = pairing(&G1Affine::from(comm_p - comm_i), &G2Affine::generator());
+    //     return lhs == rhs;
+    // }
 
     // Verify that [p_i(z)] = [y_i]
     pub fn verify_multiple_poly_single_open(
@@ -329,26 +328,26 @@ mod tests {
         assert!(res == true);
     }
 
-    #[test]
-    fn test_single_poly_multiple_open() {
-        let setup = Setup::new(32);
-        let coeffs = algebra::rand_scalars(32);
-        let poly = Polynomial::new(coeffs.into_iter());
-        let z_points = algebra::rand_scalars(16);
-        let y_points = Polynomial::fast_evalulate(&poly, &z_points);
+    // #[test]
+    // fn test_single_poly_multiple_open() {
+    //     let setup = Setup::new(32);
+    //     let coeffs = algebra::rand_scalars(32);
+    //     let poly = Polynomial::new(coeffs.into_iter());
+    //     let z_points = algebra::rand_scalars(16);
+    //     let y_points = Polynomial::fast_evalulate(&poly, &z_points);
 
-        // Prover work:
-        let zerofier = Polynomial::fast_zerofier(z_points.as_slice());
-        let i = Polynomial::fast_interpolate(z_points.as_slice(), y_points.as_slice());
-        let dividend = &poly - &i;
-        let quotient = &dividend / &zerofier;
-        let comm_p = setup.commit(&poly);
-        let comm_q = setup.commit(&quotient);
+    //     // Prover work:
+    //     let zerofier = Polynomial::fast_zerofier(z_points.as_slice());
+    //     let i = Polynomial::fast_interpolate(z_points.as_slice(), y_points.as_slice());
+    //     let dividend = &poly - &i;
+    //     let quotient = &dividend / &zerofier;
+    //     let comm_p = setup.commit(&poly);
+    //     let comm_q = setup.commit(&quotient);
 
-        // Verifier work
-        let res = setup.verify_single_poly_multiple_open(&comm_p, &comm_q, z_points, y_points);
-        assert!(res == true);
-    }
+    //     // Verifier work
+    //     let res = setup.verify_single_poly_multiple_open(&comm_p, &comm_q, z_points, y_points);
+    //     assert!(res == true);
+    // }
 
     #[test]
     fn test_multiply_poly_single_open() {

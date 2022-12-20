@@ -302,4 +302,83 @@ mod tests {
         let res = verify_lookup(&setup, &mut stream, comm_f, comm_t, &domain);
         assert!(res == false);
     }
+
+    #[test]
+    fn test_lookup_8bits() {
+        // 8 bits range proof is the same as regular lookup with t = [0..2^8-1]
+        let n = 1 << 8;
+        let domain = Domain::new(n);
+        let t_y = (0..1 << 8).map(|x| Scalar::from(x)).collect::<Vec<_>>();
+        let mut rng = thread_rng();
+        let mut f_y = (0..1 << 8)
+            .map(|_| Scalar::from(rng.gen::<u8>() as u64))
+            .collect::<Vec<_>>();
+        let setup = Setup::new(2 * n);
+        {
+            let f = domain.invert_fft_interpolate(&f_y);
+            let t = domain.invert_fft_interpolate(&t_y);
+            let mut stream = ProofStream::new();
+
+            prove_lookup(&setup, &mut stream, &f, &f_y, &t, &t_y, &domain);
+            let comm_f = setup.commit(&f);
+            let comm_t = setup.commit(&t);
+            let res = verify_lookup(&setup, &mut stream, comm_f, comm_t, &domain);
+            assert!(res == true);
+        }
+        // negative
+        {
+            f_y.pop();
+            f_y.push(Scalar::from(1 << 16));
+            let f = domain.invert_fft_interpolate(&f_y);
+            let t = domain.invert_fft_interpolate(&t_y);
+            let mut stream = ProofStream::new();
+
+            prove_lookup(&setup, &mut stream, &f, &f_y, &t, &t_y, &domain);
+            let comm_f = setup.commit(&f);
+            let comm_t = setup.commit(&t);
+            let res = verify_lookup(&setup, &mut stream, comm_f, comm_t, &domain);
+            assert!(res == false);
+        }
+    }
+
+    #[test]
+    fn test_range_proof_16bits() {
+        // 16 bits range proof
+
+        // construct a 8bits table
+        let n = 1 << 8;
+        let domain = Domain::new(n);
+        let setup = Setup::new(2 * n);
+        let t_y = (0..1 << 8).map(|x| Scalar::from(x)).collect::<Vec<_>>();
+
+        // construct random vector in 16bits
+        let mut rng = thread_rng();
+        let mut f_y = (0..1 << 8)
+            .map(|_| Scalar::from(rng.gen::<u16>() as u64))
+            .collect::<Vec<_>>();
+        {
+            let f = domain.invert_fft_interpolate(&f_y);
+            let t = domain.invert_fft_interpolate(&t_y);
+            let mut stream = ProofStream::new();
+            let comm_f = setup.commit(&f);
+            let comm_t = setup.commit(&t);
+            prove_range_proof_16bits(&setup, &mut stream, &f, &f_y, &t, &t_y, &domain);
+            let res = verify_range_proof_16bits(&setup, &mut stream, comm_f, comm_t, &domain);
+            assert!(res == true);
+        }
+        // negative
+        {
+            f_y.pop();
+            f_y.push(Scalar::from(1 << 32));
+            let f = domain.invert_fft_interpolate(&f_y);
+            let t = domain.invert_fft_interpolate(&t_y);
+            let mut stream = ProofStream::new();
+
+            prove_lookup(&setup, &mut stream, &f, &f_y, &t, &t_y, &domain);
+            let comm_f = setup.commit(&f);
+            let comm_t = setup.commit(&t);
+            let res = verify_lookup(&setup, &mut stream, comm_f, comm_t, &domain);
+            assert!(res == false);
+        }
+    }
 }

@@ -13,7 +13,7 @@ TODO:
 - [X] Permutation Argument.
 - [X] fiat-shamir 
 - [X] Lookup table
-- [ ] Range proof
+- [X] Range proof (16bits check based on two 8bits check)
 
 Run:
 ```
